@@ -18,3 +18,27 @@ body.lyfn-active-file-locked .workspace-leaf.mod-active .inline-title {
   pointer-events: none;
   user-select: none;
 }
+
+/* Scope notice at the top of the settings tab */
+.lyfn-scope-notice {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background-color: var(--background-secondary);
+}
+
+.lyfn-scope-notice p {
+  margin: 0 0 6px 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.lyfn-scope-notice p:last-child {
+  margin-bottom: 0;
+}
+
+.lyfn-scope-notice p.mod-warning {
+  color: var(--text-warning, var(--text-muted));
+  font-style: italic;
+}

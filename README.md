@@ -1,12 +1,17 @@
 # Lock Your Folders & Notes
 
-An Obsidian plugin that protects folders and individual notes from accidental editing or renaming. It
+An Obsidian plugin that protects folders and individual notes from accidental editing or renaming. 
+
+It locks the notes you select into reader view only, until you force unlock. 
+
+This plugin is designed to work inside obsidian alone, and your files are still always editable at their source with other tools. The lock only exists inside of the Obsidian itself. 
+
+Other plugins and tools will be able to override this, it is primarily to prevent accidental human changes to notes you want to lock from changes. 
 
 ## Features
 
-- **Force read mode** on locked folders (cascades to every file inside) and individual locked notes.
+- **Force read mode** on locked folders (cascades to every file inside) or individual locked notes.
 - **Block rename** on locked folders and notes — any rename attempt is reverted with a notice.
-- **Block inline-title editing** for locked files (the H1 at the top of the note becomes non-interactive).
 - **Configurable lock icon** in the file explorer:
   - Toggle on/off
   - Optional accent color

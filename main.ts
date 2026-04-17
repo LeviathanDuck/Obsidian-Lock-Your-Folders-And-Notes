@@ -609,6 +609,16 @@ class LYFNSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    // ---- Scope notice ----
+    const notice = containerEl.createDiv({ cls: "lyfn-scope-notice" });
+    notice.createEl("p", {
+      text: "This plugin prevents accidental human edits inside Obsidian only. Your files remain editable at their source with any other tool (finder, text editor, CLI). Other Obsidian plugins that modify files directly can also override these locks.",
+    });
+    notice.createEl("p", {
+      text: "Think of it as a soft guard against slips — not a security control.",
+      cls: "mod-warning",
+    });
+
     // ---- Status ----
     containerEl.createEl("h3", { text: "Status" });
     new Setting(containerEl)
