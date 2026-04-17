@@ -8,6 +8,8 @@ This plugin is designed to work inside obsidian alone, and your files are still 
 
 Other plugins and tools will be able to override this, it is primarily to prevent accidental human changes to notes you want to lock from changes. 
 
+![Settings overview](./assets/settings-overview.png)
+
 ## Features
 
 - **Force read mode** on locked folders (cascades to every file inside) or individual locked notes.

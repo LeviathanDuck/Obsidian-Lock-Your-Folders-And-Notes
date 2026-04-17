@@ -619,36 +619,25 @@ class LYFNSettingTab extends PluginSettingTab {
       cls: "mod-warning",
     });
 
-    // ---- Status ----
-    containerEl.createEl("h3", { text: "Status" });
-    new Setting(containerEl)
-      .setName("Global lock enforcement")
-      .setDesc(
-        "Master kill-switch. When off, no read-mode forcing and no rename blocking (icons remain visible)."
-      )
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.isEnabled).onChange(async (v) => {
-          this.plugin.settings.isEnabled = v;
-          await this.plugin.saveSettings();
-          this.plugin.onLayoutChange();
-          if (!v) document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
-        })
-      );
-
-    new Setting(containerEl)
-      .setName("Also block rename (experimental)")
-      .setDesc(
-        "When on, rename attempts on locked folders/notes are reverted with a notice. Note: Obsidian has no pre-rename hook, so the rename happens briefly before the revert. This can race with other plugins or network sync. Recommended off unless you really need it."
-      )
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.blockRename).onChange(async (v) => {
-          this.plugin.settings.blockRename = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
     // ---- Lock Icon Appearance ----
-    containerEl.createEl("h3", { text: "Lock icon appearance" });
+    const appearanceHeading = containerEl.createEl("h3", {
+      text: "Lock icon appearance ",
+    });
+    appearanceHeading.appendChild(this.buildPreviewIcon());
+
+    const compatNote = containerEl.createEl("p", {
+      cls: "setting-item-description",
+    });
+    compatNote.appendText(
+      "Lock icons are rendered in the native Obsidian file tree and in the Notebook Navigator plugin. If your theme hides or misaligns the icons, or you use a different file-tree plugin you'd like supported, please "
+    );
+    const issuesLink = compatNote.createEl("a", {
+      text: "open a GitHub issue",
+      href: REPO_URL + "/issues",
+    });
+    issuesLink.setAttr("target", "_blank");
+    issuesLink.setAttr("rel", "noopener");
+    compatNote.appendText(".");
 
     new Setting(containerEl)
       .setName("Show lock icon in file explorer")
@@ -680,7 +669,7 @@ class LYFNSettingTab extends PluginSettingTab {
         t.setDisabled(appearanceDisabled);
       });
 
-    new Setting(containerEl)
+    const folderPositionSetting = new Setting(containerEl)
       .setName("Folder icon position")
       .setDesc("Where the icon appears on locked folders.")
       .addDropdown((d) => {
@@ -691,11 +680,15 @@ class LYFNSettingTab extends PluginSettingTab {
           this.plugin.settings.lockIconPositionFolders = v as IconPosition;
           await this.plugin.saveSettings();
           this.plugin.refreshIconStyles();
+          this.display();
         });
         d.selectEl.disabled = appearanceDisabled;
       });
+    folderPositionSetting.nameEl.appendChild(
+      this.buildPositionPreview("folder", this.plugin.settings.lockIconPositionFolders)
+    );
 
-    new Setting(containerEl)
+    const notePositionSetting = new Setting(containerEl)
       .setName("Note icon position")
       .setDesc("Where the icon appears on individually-locked notes.")
       .addDropdown((d) => {
@@ -706,9 +699,13 @@ class LYFNSettingTab extends PluginSettingTab {
           this.plugin.settings.lockIconPositionNotes = v as IconPosition;
           await this.plugin.saveSettings();
           this.plugin.refreshIconStyles();
+          this.display();
         });
         d.selectEl.disabled = appearanceDisabled;
       });
+    notePositionSetting.nameEl.appendChild(
+      this.buildPositionPreview("note", this.plugin.settings.lockIconPositionNotes)
+    );
 
     // ---- Locked Folders ----
     containerEl.createEl("h3", { text: "Locked folders" });
@@ -738,6 +735,34 @@ class LYFNSettingTab extends PluginSettingTab {
       "Add note"
     );
 
+    // ---- Global Status ----
+    containerEl.createEl("h3", { text: "Global status" });
+    new Setting(containerEl)
+      .setName("Global lock enforcement")
+      .setDesc(
+        "Master kill-switch. When off, no read-mode forcing and no rename blocking (icons remain visible)."
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.isEnabled).onChange(async (v) => {
+          this.plugin.settings.isEnabled = v;
+          await this.plugin.saveSettings();
+          this.plugin.onLayoutChange();
+          if (!v) document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Also block rename (experimental)")
+      .setDesc(
+        "When on, rename attempts on locked folders/notes are reverted with a notice. Note: Obsidian has no pre-rename hook, so the rename happens briefly before the revert. This can race with other plugins or network sync. Recommended off unless you really need it."
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.blockRename).onChange(async (v) => {
+          this.plugin.settings.blockRename = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
     // ---- Credits ----
     containerEl.createEl("h3", { text: "Credits" });
     const credits = containerEl.createDiv({ cls: "setting-item-description" });
@@ -752,6 +777,33 @@ class LYFNSettingTab extends PluginSettingTab {
     const link = linkP.createEl("a", { text: REPO_URL, href: REPO_URL });
     link.setAttr("target", "_blank");
     link.setAttr("rel", "noopener");
+  }
+
+  private buildPreviewIcon(): HTMLSpanElement {
+    const icon = document.createElement("span");
+    icon.addClass("lyfn-preview-icon");
+    return icon;
+  }
+
+  private buildPositionPreview(
+    kind: "folder" | "note",
+    position: IconPosition
+  ): HTMLSpanElement {
+    const wrap = document.createElement("span");
+    wrap.addClass("lyfn-preview-sample");
+    const icon = document.createElement("span");
+    icon.addClass("lyfn-preview-icon");
+    const label = document.createElement("span");
+    label.addClass("lyfn-preview-label");
+    label.setText(kind === "folder" ? "My folder" : "My note");
+    if (position === "before") {
+      wrap.appendChild(icon);
+      wrap.appendChild(label);
+    } else {
+      wrap.appendChild(label);
+      wrap.appendChild(icon);
+    }
+    return wrap;
   }
 
   private renderPathList(
