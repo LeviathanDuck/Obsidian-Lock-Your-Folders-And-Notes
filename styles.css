@@ -1,0 +1,20 @@
+/* Lock Your Folders & Notes — static fallback styles.
+   The primary lock-icon stylesheet is injected at runtime from main.ts
+   based on user settings. This file only holds static rules. */
+
+/* Stale-path warning state in settings */
+.lyfn-setting-row.has-warning input {
+  border-color: var(--text-warning, #c0a030);
+}
+
+.lyfn-setting-row.has-warning .lyfn-warning-text {
+  color: var(--text-warning, #c0a030);
+  font-size: var(--font-ui-smaller);
+  margin-top: 4px;
+}
+
+/* Inline title blocker for active locked file */
+body.lyfn-active-file-locked .workspace-leaf.mod-active .inline-title {
+  pointer-events: none;
+  user-select: none;
+}

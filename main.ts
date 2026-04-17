@@ -1,0 +1,816 @@
+/*
+ * Lock Your Folders & Notes
+ * Protect folders and individual notes from accidental editing or renaming.
+ *
+ * Lock enforcement logic adapted from Force Read Mode (https://github.com/al3xw/force-read-mode)
+ * by al3xw, MIT License.
+ *
+ * Lock icon from Lucide (https://lucide.dev), ISC License.
+ */
+
+import {
+  App,
+  Menu,
+  MarkdownView,
+  normalizePath,
+  Notice,
+  Plugin,
+  PluginSettingTab,
+  Scope,
+  Setting,
+  TAbstractFile,
+  TFile,
+  TFolder,
+  WorkspaceLeaf,
+} from "obsidian";
+
+// ---- Constants ----
+
+const STYLE_EL_ID = "lyfn-icon-styles";
+const BODY_CLASS_ACTIVE_LOCKED = "lyfn-active-file-locked";
+const FORCE_READ_MODE_DATA_PATH = ".obsidian/plugins/force-read-mode/data.json";
+const REPO_URL =
+  "https://github.com/LeviathanDuck/Obsidian-Lock-Your-Folders-And-Notes";
+
+const LOCK_SVG_DATA_URI =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='11' x='3' y='11' rx='2' ry='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E\")";
+
+// ---- Settings ----
+
+type IconPosition = "before" | "after";
+
+interface LYFNSettings {
+  lockedFolders: string[];
+  lockedNotes: string[];
+  isEnabled: boolean;
+  blockRename: boolean;
+  showLockIcon: boolean;
+  lockIconUseAccent: boolean;
+  lockIconPositionFolders: IconPosition;
+  lockIconPositionNotes: IconPosition;
+}
+
+const DEFAULT_SETTINGS: LYFNSettings = {
+  lockedFolders: [],
+  lockedNotes: [],
+  isEnabled: true,
+  blockRename: false,
+  showLockIcon: true,
+  lockIconUseAccent: false,
+  lockIconPositionFolders: "after",
+  lockIconPositionNotes: "after",
+};
+
+// ---- Helpers ----
+
+function isPathLocked(filePath: string, settings: LYFNSettings): boolean {
+  if (settings.lockedNotes.includes(filePath)) return true;
+  for (const folder of settings.lockedFolders) {
+    if (!folder) continue;
+    if (filePath === folder) return true;
+    if (filePath.startsWith(folder + "/")) return true;
+  }
+  return false;
+}
+
+function isOldPathLocked(oldPath: string, settings: LYFNSettings): boolean {
+  // Same as isPathLocked but used at rename time — oldPath may be a folder or file
+  if (settings.lockedFolders.includes(oldPath)) return true;
+  if (settings.lockedNotes.includes(oldPath)) return true;
+  for (const folder of settings.lockedFolders) {
+    if (!folder) continue;
+    if (oldPath.startsWith(folder + "/")) return true;
+  }
+  for (const note of settings.lockedNotes) {
+    if (!note) continue;
+    if (oldPath === note) return true;
+  }
+  return false;
+}
+
+function cssEscapePath(path: string): string {
+  return path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function buildIconCSS(settings: LYFNSettings): string {
+  if (!settings.showLockIcon) return "";
+  if (
+    settings.lockedFolders.length === 0 &&
+    settings.lockedNotes.length === 0
+  ) {
+    return "";
+  }
+
+  const color = settings.lockIconUseAccent
+    ? "var(--interactive-accent)"
+    : "currentColor";
+
+  const maskRules = `
+    -webkit-mask-image: ${LOCK_SVG_DATA_URI} !important;
+    mask-image: ${LOCK_SVG_DATA_URI} !important;
+    -webkit-mask-size: contain !important;
+    mask-size: contain !important;
+    -webkit-mask-repeat: no-repeat !important;
+    mask-repeat: no-repeat !important;
+    -webkit-mask-position: center !important;
+    mask-position: center !important;`;
+
+  const commonRules = `
+    content: "";
+    display: inline-block;
+    width: 0.85em;
+    height: 0.85em;
+    background-color: ${color};
+    vertical-align: -2px;
+    opacity: 0.65;${maskRules}`;
+
+  const parts: string[] = [];
+
+  // Folders
+  const folderPaths = settings.lockedFolders.filter((p) => p && p.length > 0);
+  if (folderPaths.length > 0) {
+    const pos = settings.lockIconPositionFolders;
+    const margin =
+      pos === "before" ? "margin-right: 6px;" : "margin-left: 6px;";
+    const selectors: string[] = [];
+    for (const f of folderPaths) {
+      const esc = cssEscapePath(f);
+      selectors.push(`.nav-folder-title[data-path="${esc}"]::${pos}`);
+      selectors.push(
+        `.nn-navitem[data-path="${esc}"] .nn-navitem-name::${pos}`
+      );
+    }
+    parts.push(
+      `${selectors.join(",\n")} {\n${commonRules}\n    ${margin}\n  }`
+    );
+  }
+
+  // Individual notes
+  const notePaths = settings.lockedNotes.filter((p) => p && p.length > 0);
+  if (notePaths.length > 0) {
+    const pos = settings.lockIconPositionNotes;
+    const margin =
+      pos === "before" ? "margin-right: 6px;" : "margin-left: 6px;";
+    const selectors: string[] = [];
+    for (const n of notePaths) {
+      const esc = cssEscapePath(n);
+      selectors.push(`.nav-file-title[data-path="${esc}"]::${pos}`);
+      selectors.push(`.nn-file[data-path="${esc}"] .nn-file-name::${pos}`);
+    }
+    parts.push(
+      `${selectors.join(",\n")} {\n${commonRules}\n    ${margin}\n  }`
+    );
+  }
+
+  return `/* Generated by Lock Your Folders & Notes */\n${parts.join("\n\n")}\n`;
+}
+
+// ---- TextInputSuggest base (adapted from Templater's suggest.ts, MIT by SilentVoid13) ----
+
+abstract class TextInputSuggest<T> {
+  protected app: App;
+  protected inputEl: HTMLInputElement;
+  private scope: Scope;
+  private suggestEl: HTMLElement;
+  private contentEl: HTMLElement;
+  private suggestions: T[] = [];
+  private selectedIndex = 0;
+  private isOpen = false;
+
+  constructor(app: App, inputEl: HTMLInputElement) {
+    this.app = app;
+    this.inputEl = inputEl;
+    this.scope = new Scope();
+
+    this.suggestEl = document.createElement("div");
+    this.suggestEl.addClass("suggestion-container");
+    this.suggestEl.style.position = "absolute";
+    this.suggestEl.style.zIndex = "1000";
+    this.suggestEl.style.display = "none";
+
+    this.contentEl = this.suggestEl.createDiv({ cls: "suggestion" });
+
+    document.body.appendChild(this.suggestEl);
+
+    this.inputEl.addEventListener("input", this.onInput);
+    this.inputEl.addEventListener("focus", this.onInput);
+    this.inputEl.addEventListener("blur", this.onBlur);
+    this.contentEl.addEventListener("mousedown", (e) => e.preventDefault());
+
+    this.scope.register([], "ArrowDown", (e) => {
+      if (!this.isOpen) return;
+      e.preventDefault();
+      this.setSelected(Math.min(this.selectedIndex + 1, this.suggestions.length - 1));
+    });
+    this.scope.register([], "ArrowUp", (e) => {
+      if (!this.isOpen) return;
+      e.preventDefault();
+      this.setSelected(Math.max(this.selectedIndex - 1, 0));
+    });
+    this.scope.register([], "Enter", (e) => {
+      if (!this.isOpen) return;
+      e.preventDefault();
+      const item = this.suggestions[this.selectedIndex];
+      if (item !== undefined) this.useSuggestion(item);
+    });
+    this.scope.register([], "Escape", (e) => {
+      if (!this.isOpen) return;
+      e.preventDefault();
+      this.close();
+    });
+  }
+
+  abstract getSuggestions(inputStr: string): T[];
+  abstract renderSuggestion(item: T, el: HTMLElement): void;
+  abstract selectSuggestion(item: T): void;
+
+  onInput = (): void => {
+    const val = this.inputEl.value;
+    this.suggestions = this.getSuggestions(val);
+    if (this.suggestions.length === 0) {
+      this.close();
+      return;
+    }
+    this.selectedIndex = 0;
+    this.render();
+    this.open();
+  };
+
+  onBlur = (): void => {
+    // Delay so clicks inside suggestions register first
+    window.setTimeout(() => this.close(), 150);
+  };
+
+  private render(): void {
+    this.contentEl.empty();
+    for (let i = 0; i < this.suggestions.length; i++) {
+      const item = this.suggestions[i];
+      const row = this.contentEl.createDiv({ cls: "suggestion-item" });
+      this.renderSuggestion(item, row);
+      if (i === this.selectedIndex) row.addClass("is-selected");
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.useSuggestion(item);
+      });
+    }
+  }
+
+  private setSelected(i: number): void {
+    this.selectedIndex = i;
+    const rows = this.contentEl.querySelectorAll(".suggestion-item");
+    rows.forEach((el, idx) =>
+      el.toggleClass("is-selected", idx === this.selectedIndex)
+    );
+    const sel = rows[this.selectedIndex] as HTMLElement | undefined;
+    if (sel) sel.scrollIntoView({ block: "nearest" });
+  }
+
+  private useSuggestion(item: T): void {
+    this.selectSuggestion(item);
+    this.close();
+  }
+
+  private open(): void {
+    if (this.isOpen) {
+      this.position();
+      return;
+    }
+    this.isOpen = true;
+    this.suggestEl.style.display = "block";
+    this.position();
+    this.app.keymap.pushScope(this.scope);
+  }
+
+  private close(): void {
+    if (!this.isOpen) return;
+    this.isOpen = false;
+    this.suggestEl.style.display = "none";
+    this.app.keymap.popScope(this.scope);
+  }
+
+  private position(): void {
+    const rect = this.inputEl.getBoundingClientRect();
+    this.suggestEl.style.left = rect.left + window.scrollX + "px";
+    this.suggestEl.style.top = rect.bottom + window.scrollY + "px";
+    this.suggestEl.style.minWidth = rect.width + "px";
+  }
+
+  destroy(): void {
+    this.close();
+    this.inputEl.removeEventListener("input", this.onInput);
+    this.inputEl.removeEventListener("focus", this.onInput);
+    this.inputEl.removeEventListener("blur", this.onBlur);
+    this.suggestEl.detach();
+  }
+}
+
+class FolderSuggest extends TextInputSuggest<TFolder> {
+  getSuggestions(inputStr: string): TFolder[] {
+    const all = this.app.vault.getAllLoadedFiles();
+    const q = inputStr.toLowerCase();
+    const folders: TFolder[] = [];
+    for (const f of all) {
+      if (f instanceof TFolder && f.path !== "/") {
+        if (f.path.toLowerCase().contains(q)) folders.push(f);
+      }
+    }
+    folders.sort((a, b) => a.path.localeCompare(b.path));
+    return folders.slice(0, 50);
+  }
+
+  renderSuggestion(folder: TFolder, el: HTMLElement): void {
+    el.setText(folder.path);
+  }
+
+  selectSuggestion(folder: TFolder): void {
+    this.inputEl.value = folder.path;
+    this.inputEl.trigger("input");
+    this.inputEl.blur();
+  }
+}
+
+class FileSuggest extends TextInputSuggest<TFile> {
+  getSuggestions(inputStr: string): TFile[] {
+    const all = this.app.vault.getMarkdownFiles();
+    const q = inputStr.toLowerCase();
+    const matched = all.filter((f) => f.path.toLowerCase().contains(q));
+    matched.sort((a, b) => a.path.localeCompare(b.path));
+    return matched.slice(0, 50);
+  }
+
+  renderSuggestion(file: TFile, el: HTMLElement): void {
+    el.setText(file.path);
+  }
+
+  selectSuggestion(file: TFile): void {
+    this.inputEl.value = file.path;
+    this.inputEl.trigger("input");
+    this.inputEl.blur();
+  }
+}
+
+// ---- Plugin ----
+
+export default class LYFNPlugin extends Plugin {
+  settings: LYFNSettings = { ...DEFAULT_SETTINGS };
+
+  async onload(): Promise<void> {
+    await this.loadSettings();
+    await this.migrateFromForceReadMode();
+
+    this.addSettingTab(new LYFNSettingTab(this.app, this));
+    this.registerCommands();
+    this.injectIconStyles();
+
+    this.app.workspace.onLayoutReady(() => {
+      this.onLayoutChange();
+
+      this.registerEvent(
+        this.app.workspace.on("layout-change", this.onLayoutChange)
+      );
+      this.registerEvent(
+        this.app.workspace.on("active-leaf-change", this.onActiveLeafChange)
+      );
+      this.registerEvent(
+        this.app.workspace.on("file-menu", this.onFileMenu)
+      );
+      this.registerEvent(
+        this.app.vault.on("rename", this.onVaultRename)
+      );
+    });
+  }
+
+  onunload(): void {
+    this.removeIconStyles();
+    document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
+  }
+
+  async loadSettings(): Promise<void> {
+    const loaded = (await this.loadData()) as Partial<LYFNSettings> | null;
+    this.settings = { ...DEFAULT_SETTINGS, ...(loaded ?? {}) };
+  }
+
+  async saveSettings(): Promise<void> {
+    await this.saveData(this.settings);
+  }
+
+  // ---- CSS injection ----
+
+  injectIconStyles(): void {
+    this.removeIconStyles();
+    const css = buildIconCSS(this.settings);
+    if (!css) return;
+    const styleEl = document.head.createEl("style");
+    styleEl.id = STYLE_EL_ID;
+    styleEl.setText(css);
+  }
+
+  removeIconStyles(): void {
+    const existing = document.getElementById(STYLE_EL_ID);
+    if (existing) existing.remove();
+  }
+
+  refreshIconStyles(): void {
+    this.injectIconStyles();
+  }
+
+  // ---- Commands ----
+
+  registerCommands(): void {
+    this.addCommand({
+      id: "toggle-global-lock",
+      name: "Toggle global lock enforcement",
+      callback: async () => {
+        this.settings.isEnabled = !this.settings.isEnabled;
+        await this.saveSettings();
+        new Notice(
+          `Lock Your Folders & Notes: ${this.settings.isEnabled ? "Enabled" : "Disabled"}`
+        );
+        this.onLayoutChange();
+        if (!this.settings.isEnabled) {
+          document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
+        }
+      },
+    });
+  }
+
+  // ---- Lock enforcement ----
+
+  enforceLockOnLeaf(leaf: WorkspaceLeaf): void {
+    if (!this.settings.isEnabled) return;
+    const view = leaf.view;
+    if (!(view instanceof MarkdownView)) return;
+    const file = view.file;
+    if (!file) return;
+    if (!isPathLocked(file.path, this.settings)) return;
+
+    const state = leaf.getViewState();
+    const currentMode = (state.state as { mode?: string } | undefined)?.mode;
+    if (currentMode === "preview") return;
+
+    leaf.setViewState({
+      ...state,
+      state: { ...(state.state ?? {}), mode: "preview" },
+    });
+  }
+
+  onLayoutChange = (): void => {
+    const leaves = this.app.workspace.getLeavesOfType("markdown");
+    for (const leaf of leaves) this.enforceLockOnLeaf(leaf);
+  };
+
+  onActiveLeafChange = (leaf: WorkspaceLeaf | null): void => {
+    if (!leaf) {
+      document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
+      return;
+    }
+    const view = leaf.view;
+    if (!(view instanceof MarkdownView)) {
+      document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
+      return;
+    }
+    const file = view.file;
+    if (!file) {
+      document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
+      return;
+    }
+    const locked =
+      this.settings.isEnabled && isPathLocked(file.path, this.settings);
+    document.body.toggleClass(BODY_CLASS_ACTIVE_LOCKED, locked);
+
+    if (!locked) return;
+
+    const state = leaf.getViewState();
+    const currentMode = (state.state as { mode?: string } | undefined)?.mode;
+    if (currentMode !== "preview") {
+      new Notice(
+        "This note is locked. Run 'Toggle global lock enforcement' to edit."
+      );
+      this.enforceLockOnLeaf(leaf);
+    }
+  };
+
+  onVaultRename = async (
+    file: TAbstractFile,
+    oldPath: string
+  ): Promise<void> => {
+    if (!this.settings.isEnabled) return;
+    if (!this.settings.blockRename) return;
+    if (!isOldPathLocked(oldPath, this.settings)) return;
+
+    try {
+      await this.app.fileManager.renameFile(file, oldPath);
+      new Notice("This path is locked. Rename was reverted.");
+    } catch (err) {
+      new Notice("Could not revert rename on locked path.");
+    }
+  };
+
+  // ---- File menu integration ----
+
+  onFileMenu = (menu: Menu, file: TAbstractFile): void => {
+    if (file instanceof TFolder) {
+      if (file.path === "/") return;
+      const locked = this.settings.lockedFolders.includes(file.path);
+      menu.addItem((item) =>
+        item
+          .setTitle(locked ? "Unlock folder" : "Lock folder (and contents)")
+          .setIcon(locked ? "unlock" : "lock")
+          .onClick(async () => {
+            if (locked) {
+              this.settings.lockedFolders = this.settings.lockedFolders.filter(
+                (p) => p !== file.path
+              );
+            } else {
+              this.settings.lockedFolders.push(file.path);
+            }
+            await this.saveSettings();
+            this.refreshIconStyles();
+            this.onLayoutChange();
+          })
+      );
+    } else if (file instanceof TFile && file.extension === "md") {
+      const locked = this.settings.lockedNotes.includes(file.path);
+      menu.addItem((item) =>
+        item
+          .setTitle(locked ? "Unlock note" : "Lock this note")
+          .setIcon(locked ? "unlock" : "lock")
+          .onClick(async () => {
+            if (locked) {
+              this.settings.lockedNotes = this.settings.lockedNotes.filter(
+                (p) => p !== file.path
+              );
+            } else {
+              this.settings.lockedNotes.push(file.path);
+            }
+            await this.saveSettings();
+            this.refreshIconStyles();
+            this.onLayoutChange();
+          })
+      );
+    }
+  };
+
+  // ---- Migration ----
+
+  async migrateFromForceReadMode(): Promise<void> {
+    if (
+      this.settings.lockedFolders.length > 0 ||
+      this.settings.lockedNotes.length > 0
+    ) {
+      return;
+    }
+    const exists = await this.app.vault.adapter.exists(
+      FORCE_READ_MODE_DATA_PATH
+    );
+    if (!exists) return;
+
+    try {
+      const raw = await this.app.vault.adapter.read(FORCE_READ_MODE_DATA_PATH);
+      const parsed = JSON.parse(raw) as { targetFolderPaths?: string[] };
+      const inputs = parsed.targetFolderPaths ?? [];
+      const folders: string[] = [];
+      const notes: string[] = [];
+      for (const raw of inputs) {
+        const cleaned = raw
+          .replace(/\/\*\*$/, "")
+          .replace(/\*\*$/, "")
+          .replace(/\/$/, "");
+        if (!cleaned) continue;
+        const last = cleaned.split("/").pop() ?? "";
+        if (last.includes(".")) notes.push(cleaned);
+        else folders.push(cleaned);
+      }
+      if (folders.length === 0 && notes.length === 0) return;
+      this.settings.lockedFolders = folders;
+      this.settings.lockedNotes = notes;
+      await this.saveSettings();
+      new Notice(
+        "Lock Your Folders & Notes: imported settings from Force Read Mode. You can disable that plugin now.",
+        8000
+      );
+    } catch (err) {
+      // ignore — migration is best-effort
+    }
+  }
+}
+
+// ---- Settings Tab ----
+
+class LYFNSettingTab extends PluginSettingTab {
+  plugin: LYFNPlugin;
+
+  constructor(app: App, plugin: LYFNPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+
+    // ---- Status ----
+    containerEl.createEl("h3", { text: "Status" });
+    new Setting(containerEl)
+      .setName("Global lock enforcement")
+      .setDesc(
+        "Master kill-switch. When off, no read-mode forcing and no rename blocking (icons remain visible)."
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.isEnabled).onChange(async (v) => {
+          this.plugin.settings.isEnabled = v;
+          await this.plugin.saveSettings();
+          this.plugin.onLayoutChange();
+          if (!v) document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Also block rename (experimental)")
+      .setDesc(
+        "When on, rename attempts on locked folders/notes are reverted with a notice. Note: Obsidian has no pre-rename hook, so the rename happens briefly before the revert. This can race with other plugins or network sync. Recommended off unless you really need it."
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.blockRename).onChange(async (v) => {
+          this.plugin.settings.blockRename = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    // ---- Lock Icon Appearance ----
+    containerEl.createEl("h3", { text: "Lock icon appearance" });
+
+    new Setting(containerEl)
+      .setName("Show lock icon in file explorer")
+      .setDesc("Paints a small lock icon on locked folders and notes.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.showLockIcon).onChange(async (v) => {
+          this.plugin.settings.showLockIcon = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshIconStyles();
+          this.display();
+        })
+      );
+
+    const appearanceDisabled = !this.plugin.settings.showLockIcon;
+
+    new Setting(containerEl)
+      .setName("Use accent color")
+      .setDesc(
+        "When on, the icon uses your vault's accent color. When off, it follows the surrounding text color."
+      )
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.lockIconUseAccent).onChange(
+          async (v) => {
+            this.plugin.settings.lockIconUseAccent = v;
+            await this.plugin.saveSettings();
+            this.plugin.refreshIconStyles();
+          }
+        );
+        t.setDisabled(appearanceDisabled);
+      });
+
+    new Setting(containerEl)
+      .setName("Folder icon position")
+      .setDesc("Where the icon appears on locked folders.")
+      .addDropdown((d) => {
+        d.addOption("after", "After folder name");
+        d.addOption("before", "Before folder name");
+        d.setValue(this.plugin.settings.lockIconPositionFolders);
+        d.onChange(async (v) => {
+          this.plugin.settings.lockIconPositionFolders = v as IconPosition;
+          await this.plugin.saveSettings();
+          this.plugin.refreshIconStyles();
+        });
+        d.selectEl.disabled = appearanceDisabled;
+      });
+
+    new Setting(containerEl)
+      .setName("Note icon position")
+      .setDesc("Where the icon appears on individually-locked notes.")
+      .addDropdown((d) => {
+        d.addOption("after", "After note name");
+        d.addOption("before", "Before note name");
+        d.setValue(this.plugin.settings.lockIconPositionNotes);
+        d.onChange(async (v) => {
+          this.plugin.settings.lockIconPositionNotes = v as IconPosition;
+          await this.plugin.saveSettings();
+          this.plugin.refreshIconStyles();
+        });
+        d.selectEl.disabled = appearanceDisabled;
+      });
+
+    // ---- Locked Folders ----
+    containerEl.createEl("h3", { text: "Locked folders" });
+    containerEl.createEl("p", {
+      text: "Every note inside a locked folder (at any depth) is protected from editing and renaming. Type a folder path or use the suggestion dropdown.",
+      cls: "setting-item-description",
+    });
+
+    this.renderPathList(
+      containerEl,
+      this.plugin.settings.lockedFolders,
+      "folder",
+      "Add folder"
+    );
+
+    // ---- Locked Notes ----
+    containerEl.createEl("h3", { text: "Locked notes" });
+    containerEl.createEl("p", {
+      text: "Lock individual notes. Only .md files are suggested.",
+      cls: "setting-item-description",
+    });
+
+    this.renderPathList(
+      containerEl,
+      this.plugin.settings.lockedNotes,
+      "note",
+      "Add note"
+    );
+
+    // ---- Credits ----
+    containerEl.createEl("h3", { text: "Credits" });
+    const credits = containerEl.createDiv({ cls: "setting-item-description" });
+    credits.createEl("p", {
+      text: "Lock enforcement logic adapted from Force Read Mode by al3xw (MIT).",
+    });
+    credits.createEl("p", {
+      text: "Lock icon from the Lucide icon library (ISC).",
+    });
+    const linkP = credits.createEl("p");
+    linkP.appendText("Source & issues: ");
+    const link = linkP.createEl("a", { text: REPO_URL, href: REPO_URL });
+    link.setAttr("target", "_blank");
+    link.setAttr("rel", "noopener");
+  }
+
+  private renderPathList(
+    containerEl: HTMLElement,
+    paths: string[],
+    kind: "folder" | "note",
+    addLabel: string
+  ): void {
+    const listEl = containerEl.createDiv({ cls: "lyfn-path-list" });
+
+    paths.forEach((path, index) => {
+      const rowContainer = listEl.createDiv({ cls: "lyfn-setting-row" });
+      const setting = new Setting(rowContainer);
+      setting.addSearch((search) => {
+        search.setPlaceholder(
+          kind === "folder" ? "folder/path" : "folder/note.md"
+        );
+        search.setValue(path);
+
+        // Attach suggester
+        if (kind === "folder") {
+          new FolderSuggest(this.app, search.inputEl);
+        } else {
+          new FileSuggest(this.app, search.inputEl);
+        }
+
+        search.onChange(async (v) => {
+          const trimmed = v.trim();
+          paths[index] = trimmed;
+          // validation warning
+          if (trimmed.length > 0) {
+            const normalized = normalizePath(trimmed);
+            const af = this.app.vault.getAbstractFileByPath(normalized);
+            const valid =
+              kind === "folder"
+                ? af instanceof TFolder
+                : af instanceof TFile && af.extension === "md";
+            rowContainer.toggleClass("has-warning", !valid);
+          } else {
+            rowContainer.removeClass("has-warning");
+          }
+          await this.plugin.saveSettings();
+          this.plugin.refreshIconStyles();
+          this.plugin.onLayoutChange();
+        });
+      });
+      setting.addExtraButton((btn) =>
+        btn
+          .setIcon("x")
+          .setTooltip("Remove")
+          .onClick(async () => {
+            paths.splice(index, 1);
+            await this.plugin.saveSettings();
+            this.plugin.refreshIconStyles();
+            this.plugin.onLayoutChange();
+            this.display();
+          })
+      );
+    });
+
+    new Setting(listEl).addButton((btn) =>
+      btn
+        .setButtonText(addLabel)
+        .setCta()
+        .onClick(async () => {
+          paths.push("");
+          await this.plugin.saveSettings();
+          this.display();
+        })
+    );
+  }
+}

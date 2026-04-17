@@ -1,0 +1,26 @@
+{
+  "name": "lock-your-folders-and-notes",
+  "version": "0.1.0",
+  "description": "Protect folders and individual notes from accidental editing or renaming in Obsidian.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "keywords": [
+    "obsidian-plugin",
+    "lock",
+    "read-only",
+    "governance"
+  ],
+  "author": "Leftcoast",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.0",
+    "obsidian": "^1.4.11",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.3"
+  }
+}
