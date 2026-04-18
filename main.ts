@@ -797,26 +797,13 @@ class LYFNSettingTab extends PluginSettingTab {
 
     // ---- Author block ----
     const authorBlock = containerEl.createDiv({ cls: "lyfn-author-block" });
-    const authorLink = authorBlock.createEl("a", {
+    const nameDiv = authorBlock.createEl("div", { cls: "lyfn-author-name" });
+    const nameLink = nameDiv.createEl("a", {
+      text: "Leviathan Duck",
       href: "https://github.com/LeviathanDuck",
     });
-    authorLink.setAttr("target", "_blank");
-    authorLink.setAttr("rel", "noopener");
-    const avatar = authorLink.createEl("img", {
-      attr: {
-        src: this.app.vault.adapter.getResourcePath(
-          ".obsidian/plugins/lock-your-folders-and-notes/assets/LeviathanDuck.png"
-        ),
-        alt: "LeviathanDuck",
-      },
-      cls: "lyfn-author-avatar",
-    });
-    void avatar;
-    const authorName = authorBlock.createEl("div", {
-      cls: "lyfn-author-name",
-      text: "Leviathan Duck",
-    });
-    void authorName;
+    nameLink.setAttr("target", "_blank");
+    nameLink.setAttr("rel", "noopener");
     authorBlock.createEl("div", {
       cls: "lyfn-author-meta",
       text: "Leftcoast Media House Inc.",
