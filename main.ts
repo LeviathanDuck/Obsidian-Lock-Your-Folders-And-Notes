@@ -286,9 +286,7 @@ abstract class TextInputSuggest<T> {
 
     this.suggestEl = document.createElement("div");
     this.suggestEl.addClass("suggestion-container");
-    this.suggestEl.style.position = "absolute";
-    this.suggestEl.style.zIndex = "1000";
-    this.suggestEl.style.display = "none";
+    this.suggestEl.addClass("lyfn-suggest");
 
     this.contentEl = this.suggestEl.createDiv({ cls: "suggestion" });
 
@@ -378,7 +376,7 @@ abstract class TextInputSuggest<T> {
       return;
     }
     this.isOpen = true;
-    this.suggestEl.style.display = "block";
+    this.suggestEl.addClass("is-open");
     this.position();
     this.app.keymap.pushScope(this.scope);
   }
@@ -386,7 +384,7 @@ abstract class TextInputSuggest<T> {
   private close(): void {
     if (!this.isOpen) return;
     this.isOpen = false;
-    this.suggestEl.style.display = "none";
+    this.suggestEl.removeClass("is-open");
     this.app.keymap.popScope(this.scope);
   }
 

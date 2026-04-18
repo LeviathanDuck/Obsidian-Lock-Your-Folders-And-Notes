@@ -126,6 +126,18 @@ body.lyfn-active-file-locked .workspace-leaf.mod-active .inline-title {
   padding: 2px 0 6px 12px;
 }
 
+/* TextInputSuggest dropdown — positioning and visibility.
+   Dynamic left/top/min-width are set from main.ts (input position). */
+.lyfn-suggest {
+  position: absolute;
+  z-index: 1000;
+  display: none;
+}
+
+.lyfn-suggest.is-open {
+  display: block;
+}
+
 /* Scope notice at the top of the settings tab */
 .lyfn-scope-notice {
   border: 1px solid var(--background-modifier-border);

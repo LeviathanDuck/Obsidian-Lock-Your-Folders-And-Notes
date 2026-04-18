@@ -1,6 +1,6 @@
 {
   "name": "lock-your-folders-and-notes",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Protect folders and individual notes from accidental editing or renaming in Obsidian.",
   "main": "main.js",
   "scripts": {
@@ -13,7 +13,10 @@
     "read-only",
     "governance"
   ],
-  "author": "Leftcoast",
+  "author": {
+    "name": "Leviathan Duck — Leftcoast Media House Inc.",
+    "url": "https://github.com/LeviathanDuck"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.11.0",
