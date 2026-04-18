@@ -593,6 +593,11 @@ export default class LYFNPlugin extends Plugin {
   // Cleared on plugin reload (not persisted).
   sessionUnlockedPaths: Set<string> = new Set();
 
+  // Paths currently being reverted by our own rename handler. Prevents
+  // re-entrancy: fileManager.renameFile() itself fires vault "rename",
+  // and on mobile the secondary event can race the original await.
+  private _pendingReverts: Set<string> = new Set();
+
   async onload(): Promise<void> {
     await this.loadSettings();
     await this.migrateFromForceReadMode();
@@ -789,11 +794,24 @@ export default class LYFNPlugin extends Plugin {
     if (!this.settings.blockRename) return;
     if (!isOldPathLocked(oldPath, this.settings)) return;
 
+    // Re-entrancy guard: our own renameFile below re-fires vault "rename".
+    // On mobile the secondary event can race the await, so guard on both
+    // the current file.path and the oldPath we're reverting to.
+    if (
+      this._pendingReverts.has(oldPath) ||
+      this._pendingReverts.has(file.path)
+    ) {
+      return;
+    }
+    this._pendingReverts.add(oldPath);
+
     try {
       await this.app.fileManager.renameFile(file, oldPath);
       new Notice("This path is locked. Rename was reverted.");
     } catch (err) {
       new Notice("Could not revert rename on locked path.");
+    } finally {
+      setTimeout(() => this._pendingReverts.delete(oldPath), 500);
     }
   };
 
