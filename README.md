@@ -14,16 +14,20 @@ Other plugins and tools will be able to override this, it is primarily to preven
 
 ## Features
 
-- **Force read mode** on locked folders (cascades to every file inside) or individual locked notes.
-- **Block rename** on locked folders and notes — any rename attempt is reverted with a notice.
+- **Force read mode** on locked folders (cascades to every file inside, at any depth) or individual locked notes.
+- **Unlock exceptions** — carve out specific folders or notes inside a locked folder so they stay editable. Priority order: explicit note lock → unlock exception → folder lock.
+- **Smart subfolder preview** — each locked-folder row in settings shows `↳ N subfolders, M files will be affected` so you can see the lock's reach before committing.
+- **Block rename** (optional, experimental, default off) — rename attempts on locked folders/notes are reverted with a notice.
+- **Force-unlock command with optional password** — escape hatch for when you really need to edit a locked note. Session-scoped (clears on plugin reload). Optional password is stored as a SHA-256 hash in `data.json`. Password reset button is no-password-required.
 - **Configurable lock icon** in the file explorer:
   - Toggle on/off
   - Optional accent color
   - Position (before or after the name) — independent toggles for folders and notes
   - Works with default file explorer and Notebook Navigator
-- **Two ways to add a lock**:
+- **Three ways to add a lock**:
   1. Settings tab → dynamic list with folder/file suggestions (works identically on desktop and mobile)
   2. Right-click (desktop) or long-press (mobile) any folder or note in the file tree → **Lock** / **Unlock**
+  3. Right-click a path inside a locked folder → **Add unlock exception (allow edit)**
 - **Global toggle command** — temporarily disable all locks when you need to edit
 - **Import from Force Read Mode** — on first run, existing `force-read-mode/data.json` is imported automatically
 
@@ -52,12 +56,12 @@ Other plugins and tools will be able to override this, it is primarily to preven
 
 ## Roadmap
 
-Planned features beyond v0.1.0:
+Open ideas for future versions:
 
-- **Force-unlock command with optional password gate** — a single command that temporarily unlocks a specific note for editing, releasing on next file switch or plugin reload. An optional password in settings adds friction against accidental unlocks. Password is stored as a SHA-256 hash via the Web Crypto API (no reversible encryption, no plaintext in `data.json`).
-- **Password reset / remove** — a button in settings that wipes the stored hash without requiring the current password. This is not a security control; it's accidental-edit protection. `data.json` is user-accessible, so anyone with filesystem access can bypass any protection here. Use a throwaway password, never a sensitive one.
-- **Frontmatter opt-in** — allow a note to declare `lyfn-locked: true` in YAML frontmatter as an alternative to listing it in settings.
-- **Canvas file support** — currently only markdown files are locked; canvas files and other file types pass through untouched.
+- **Frontmatter opt-in** — let a note declare `lyfn-locked: true` in YAML as an alternative to listing it in settings.
+- **Canvas file support** — currently only `.md` files are protected; `.canvas` and other file types pass through untouched.
+
+Have another request or bug report? [Open an issue on GitHub](https://github.com/LeviathanDuck/Obsidian-Lock-Your-Folders-And-Notes/issues).
 
 ## License
 
