@@ -13,6 +13,21 @@
   margin-top: 4px;
 }
 
+/* Password modal */
+.lyfn-password-input {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  padding: 6px 10px;
+  font-size: var(--font-ui-medium);
+}
+.lyfn-password-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* Author block at the bottom of the settings tab */
 .lyfn-author-block {
   text-align: center;

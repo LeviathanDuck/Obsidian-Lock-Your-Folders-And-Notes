@@ -12,6 +12,7 @@ import {
   App,
   Menu,
   MarkdownView,
+  Modal,
   normalizePath,
   Notice,
   Plugin,
@@ -49,6 +50,9 @@ interface LYFNSettings {
   lockIconUseAccent: boolean;
   lockIconPositionFolders: IconPosition;
   lockIconPositionNotes: IconPosition;
+  // Force unlock
+  forceUnlockEnabled: boolean;
+  forceUnlockPasswordHash: string; // "" = no password required
 }
 
 const DEFAULT_SETTINGS: LYFNSettings = {
@@ -61,7 +65,19 @@ const DEFAULT_SETTINGS: LYFNSettings = {
   lockIconUseAccent: false,
   lockIconPositionFolders: "after",
   lockIconPositionNotes: "after",
+  forceUnlockEnabled: false,
+  forceUnlockPasswordHash: "",
 };
+
+// ---- Crypto helpers ----
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 // ---- Helpers ----
 
@@ -77,7 +93,13 @@ function isUnderException(
   return false;
 }
 
-function isPathLocked(filePath: string, settings: LYFNSettings): boolean {
+function isPathLocked(
+  filePath: string,
+  settings: LYFNSettings,
+  sessionUnlocked?: ReadonlySet<string>
+): boolean {
+  // Session unlock beats every other rule (including explicit note locks).
+  if (sessionUnlocked && sessionUnlocked.has(filePath)) return false;
   // Priority: explicit note lock > unlock exception > folder lock
   if (settings.lockedNotes.includes(filePath)) return true;
   if (isUnderException(filePath, settings)) return false;
@@ -458,10 +480,63 @@ class AnySuggest extends TextInputSuggest<TAbstractFile> {
   }
 }
 
+// ---- Password modal ----
+
+class PasswordModal extends Modal {
+  private onSubmit: (attempt: string) => void | Promise<void>;
+
+  constructor(app: App, onSubmit: (attempt: string) => void | Promise<void>) {
+    super(app);
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Force unlock" });
+    contentEl.createEl("p", {
+      text: "Enter the force-unlock password to edit this locked note for the current session.",
+      cls: "setting-item-description",
+    });
+    const input = contentEl.createEl("input", {
+      attr: { type: "password", placeholder: "Password" },
+      cls: "lyfn-password-input",
+    });
+    input.focus();
+
+    const btnRow = contentEl.createDiv({ cls: "lyfn-password-btn-row" });
+    const cancelBtn = btnRow.createEl("button", { text: "Cancel" });
+    cancelBtn.addEventListener("click", () => this.close());
+    const submitBtn = btnRow.createEl("button", {
+      text: "Unlock",
+      cls: "mod-cta",
+    });
+    const submit = async () => {
+      const attempt = input.value;
+      this.close();
+      await this.onSubmit(attempt);
+    };
+    submitBtn.addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void submit();
+      }
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 // ---- Plugin ----
 
 export default class LYFNPlugin extends Plugin {
   settings: LYFNSettings = { ...DEFAULT_SETTINGS };
+  // Paths that the user has force-unlocked for the current session.
+  // Cleared on plugin reload (not persisted).
+  sessionUnlockedPaths: Set<string> = new Set();
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -541,6 +616,56 @@ export default class LYFNPlugin extends Plugin {
         }
       },
     });
+
+    this.addCommand({
+      id: "force-unlock-current-note",
+      name: "Force unlock current note (session only)",
+      checkCallback: (checking) => {
+        const leaf = this.app.workspace.getMostRecentLeaf();
+        const view = leaf?.view;
+        if (!(view instanceof MarkdownView)) return false;
+        const file = view.file;
+        if (!file) return false;
+        if (!this.settings.forceUnlockEnabled) return false;
+        if (!isPathLocked(file.path, this.settings)) return false;
+        if (checking) return true;
+        void this.promptForceUnlock(file.path);
+        return true;
+      },
+    });
+  }
+
+  async promptForceUnlock(path: string): Promise<void> {
+    if (!this.settings.forceUnlockPasswordHash) {
+      this.applyForceUnlock(path);
+      return;
+    }
+    new PasswordModal(this.app, async (attempt) => {
+      const hash = await sha256Hex(attempt);
+      if (hash === this.settings.forceUnlockPasswordHash) {
+        this.applyForceUnlock(path);
+      } else {
+        new Notice("Incorrect password.");
+      }
+    }).open();
+  }
+
+  applyForceUnlock(path: string): void {
+    this.sessionUnlockedPaths.add(path);
+    document.body.removeClass(BODY_CLASS_ACTIVE_LOCKED);
+    new Notice(
+      `Unlocked for this session: ${path}\nRe-locks when you reload the plugin.`,
+      5000
+    );
+    // Nudge the active leaf out of forced-preview.
+    const leaf = this.app.workspace.getMostRecentLeaf();
+    if (leaf) {
+      const state = leaf.getViewState();
+      leaf.setViewState({
+        ...state,
+        state: { ...(state.state ?? {}), mode: "source" },
+      });
+    }
   }
 
   // ---- Lock enforcement ----
@@ -551,7 +676,8 @@ export default class LYFNPlugin extends Plugin {
     if (!(view instanceof MarkdownView)) return;
     const file = view.file;
     if (!file) return;
-    if (!isPathLocked(file.path, this.settings)) return;
+    if (!isPathLocked(file.path, this.settings, this.sessionUnlockedPaths))
+      return;
 
     const state = leaf.getViewState();
     const currentMode = (state.state as { mode?: string } | undefined)?.mode;
@@ -584,7 +710,8 @@ export default class LYFNPlugin extends Plugin {
       return;
     }
     const locked =
-      this.settings.isEnabled && isPathLocked(file.path, this.settings);
+      this.settings.isEnabled &&
+      isPathLocked(file.path, this.settings, this.sessionUnlockedPaths);
     document.body.toggleClass(BODY_CLASS_ACTIVE_LOCKED, locked);
 
     if (!locked) return;
@@ -937,6 +1064,67 @@ class LYFNSettingTab extends PluginSettingTab {
       "any",
       "Add exception"
     );
+
+    // ---- Force Unlock ----
+    containerEl.createEl("h3", { text: "Force unlock" });
+    containerEl.createEl("p", {
+      text: "Optional escape hatch. When enabled, the command palette exposes 'Force unlock current note (session only)'. Unlocks last until you reload the plugin — they do not persist. If a password is set, you must enter it every time.",
+      cls: "setting-item-description",
+    });
+
+    const warnP = containerEl.createEl("p", { cls: "setting-item-description" });
+    const warnStrong = warnP.createEl("strong");
+    warnStrong.setText("⚠ Not a security control.");
+    warnP.appendText(
+      " The password is stored as a SHA-256 hash in data.json. Anyone with filesystem access can wipe the hash and bypass. Use a throwaway password."
+    );
+
+    new Setting(containerEl)
+      .setName("Enable force-unlock command")
+      .setDesc(
+        "Registers the 'Force unlock current note' command in the palette."
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.forceUnlockEnabled).onChange(async (v) => {
+          this.plugin.settings.forceUnlockEnabled = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Password")
+      .setDesc(
+        this.plugin.settings.forceUnlockPasswordHash
+          ? "A password is set. Type a new value to change it; leave empty to keep the current one."
+          : "No password — force-unlock will work without prompting. Type a password to set one."
+      )
+      .addText((t) => {
+        t.inputEl.setAttr("type", "password");
+        t.setPlaceholder("Type new password…");
+        t.onChange(async (v) => {
+          if (!v) return;
+          const hash = await sha256Hex(v);
+          this.plugin.settings.forceUnlockPasswordHash = hash;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Reset password")
+      .setDesc(
+        "Wipes the stored password hash. Does NOT require the current password to reset."
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Reset password")
+          .setWarning()
+          .onClick(async () => {
+            this.plugin.settings.forceUnlockPasswordHash = "";
+            await this.plugin.saveSettings();
+            new Notice("Force-unlock password cleared.");
+            this.display();
+          })
+      );
 
     // ---- Global Status ----
     containerEl.createEl("h3", { text: "Global status" });

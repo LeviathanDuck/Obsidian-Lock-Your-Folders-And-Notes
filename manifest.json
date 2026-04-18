@@ -1,7 +1,7 @@
 {
   "id": "lock-your-folders-and-notes",
   "name": "Lock Your Folders & Notes",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minAppVersion": "1.4.0",
   "description": "Protect folders and individual notes from accidental editing or renaming. Forces read mode, blocks rename, and shows a configurable lock icon in the file explorer.",
   "author": "Leviathan Duck — Leftcoast Media House Inc.",
