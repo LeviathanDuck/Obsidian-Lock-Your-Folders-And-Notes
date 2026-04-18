@@ -26,8 +26,10 @@ Other plugins and tools will be able to override this, it is primarily to preven
   - Works with default file explorer and Notebook Navigator
 - **Three ways to add a lock**:
   1. Settings tab → dynamic list with folder/file suggestions (works identically on desktop and mobile)
-  2. Right-click (desktop) or long-press (mobile) any folder or note in the file tree → **Lock** / **Unlock**
+  2. Right-click (desktop) or long-press (mobile) any folder or note in the **default file explorer** → **Lock** / **Unlock**
   3. Right-click a path inside a locked folder → **Add unlock exception (allow edit)**
+
+> **Note on Notebook Navigator.** Right-click lock/unlock is not available from inside Notebook Navigator's pane. NN builds its own context menu internally and does not dispatch Obsidian's `workspace.file-menu` event that this plugin subscribes to. Lock icons **do** render correctly on NN rows — only the right-click menu is affected. To lock/unlock from an NN-centric workflow, use the **settings tab** (with path suggestions) or the **Command palette** (`Toggle global lock enforcement`, `Force unlock current note`). A tracker-issue or upstream PR to NN is the clean long-term path.
 - **Global toggle command** — temporarily disable all locks when you need to edit
 - **Import from Force Read Mode** — on first run, existing `force-read-mode/data.json` is imported automatically
 

@@ -1,6 +1,6 @@
 {
   "name": "lock-your-folders-and-notes",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Protect folders and individual notes from accidental editing or renaming in Obsidian.",
   "main": "main.js",
   "scripts": {
