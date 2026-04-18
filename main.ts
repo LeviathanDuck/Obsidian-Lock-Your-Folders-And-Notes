@@ -154,14 +154,38 @@ function buildIconCSS(settings: LYFNSettings): string {
     -webkit-mask-position: center !important;
     mask-position: center !important;`;
 
-  const commonRules = `
+  // Rules shared by both positions: visual appearance of the icon.
+  const visualRules = `
     content: "";
-    display: inline-block;
     width: 0.85em;
     height: 0.85em;
     background-color: ${color};
-    vertical-align: -2px;
     opacity: 0.65;${maskRules}`;
+
+  // "Before" position: inline-block pseudo in the text flow. Ellipsis-safe by
+  // construction (the pseudo renders before the text, so text-overflow affects
+  // the text tail, not the icon).
+  const beforePseudoRules = `${visualRules}
+    display: inline-block;
+    vertical-align: -2px;
+    margin-right: 6px;`;
+
+  // "After" position: absolute-positioned pseudo anchored to the right edge
+  // of a host element that is made position:relative. This escapes the
+  // text-overflow:ellipsis clip that would otherwise hide the icon when a
+  // filename is long enough to truncate. The matching host-element rule
+  // below reserves padding-right so the text never overlaps the icon.
+  const afterPseudoRules = `${visualRules}
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);`;
+
+  // Host-element rules for "after" position: the element that owns the
+  // pseudo becomes the positioning context for it.
+  const afterHostRules = `
+    position: relative;
+    padding-right: 1.4em;`;
 
   const parts: string[] = [];
 
@@ -169,53 +193,86 @@ function buildIconCSS(settings: LYFNSettings): string {
   const notePaths = settings.lockedNotes.filter((p) => p && p.length > 0);
   const folderPos = settings.lockIconPositionFolders;
   const notePos = settings.lockIconPositionNotes;
-  const folderMargin =
-    folderPos === "before" ? "margin-right: 6px;" : "margin-left: 6px;";
-  const noteMargin =
-    notePos === "before" ? "margin-right: 6px;" : "margin-left: 6px;";
 
-  // Folder selectors (both exact matches and prefix-match for descendant folders)
-  const folderSelectors: string[] = [];
+  // Helper: build selector lists from a path into its pseudo-target and
+  // host-target forms. For the default file explorer the pseudo attaches to
+  // the title element itself; for Notebook Navigator the pseudo attaches to
+  // the inner name span (.nn-navitem-name / .nn-file-name).
+  type SelectorPair = { pseudo: string; host: string };
+  const folderTargets = (esc: string, pos: "before" | "after"): SelectorPair[] => [
+    {
+      pseudo: `.nav-folder-title[data-path="${esc}"]::${pos}`,
+      host: `.nav-folder-title[data-path="${esc}"]`,
+    },
+    {
+      pseudo: `.nn-navitem[data-path="${esc}"] .nn-navitem-name::${pos}`,
+      host: `.nn-navitem[data-path="${esc}"] .nn-navitem-name`,
+    },
+    {
+      pseudo: `.nav-folder-title[data-path^="${esc}/"]::${pos}`,
+      host: `.nav-folder-title[data-path^="${esc}/"]`,
+    },
+    {
+      pseudo: `.nn-navitem[data-path^="${esc}/"] .nn-navitem-name::${pos}`,
+      host: `.nn-navitem[data-path^="${esc}/"] .nn-navitem-name`,
+    },
+  ];
+  const noteExactTargets = (esc: string, pos: "before" | "after"): SelectorPair[] => [
+    {
+      pseudo: `.nav-file-title[data-path="${esc}"]::${pos}`,
+      host: `.nav-file-title[data-path="${esc}"]`,
+    },
+    {
+      pseudo: `.nn-file[data-path="${esc}"] .nn-file-name::${pos}`,
+      host: `.nn-file[data-path="${esc}"] .nn-file-name`,
+    },
+  ];
+  const noteDescendantTargets = (esc: string, pos: "before" | "after"): SelectorPair[] => [
+    {
+      pseudo: `.nav-file-title[data-path^="${esc}/"]::${pos}`,
+      host: `.nav-file-title[data-path^="${esc}/"]`,
+    },
+    {
+      pseudo: `.nn-file[data-path^="${esc}/"] .nn-file-name::${pos}`,
+      host: `.nn-file[data-path^="${esc}/"] .nn-file-name`,
+    },
+  ];
+
+  // Folder selectors
+  const folderPairs: SelectorPair[] = [];
   for (const f of folderPaths) {
     const esc = cssEscapePath(f);
-    // Exact match (the folder itself)
-    folderSelectors.push(`.nav-folder-title[data-path="${esc}"]::${folderPos}`);
-    folderSelectors.push(
-      `.nn-navitem[data-path="${esc}"] .nn-navitem-name::${folderPos}`
-    );
-    // Descendant folders (any depth)
-    folderSelectors.push(
-      `.nav-folder-title[data-path^="${esc}/"]::${folderPos}`
-    );
-    folderSelectors.push(
-      `.nn-navitem[data-path^="${esc}/"] .nn-navitem-name::${folderPos}`
-    );
+    folderPairs.push(...folderTargets(esc, folderPos));
   }
-  if (folderSelectors.length > 0) {
-    parts.push(
-      `${folderSelectors.join(",\n")} {\n${commonRules}\n    ${folderMargin}\n  }`
-    );
+  if (folderPairs.length > 0) {
+    if (folderPos === "after") {
+      const hosts = folderPairs.map((p) => p.host).join(",\n");
+      parts.push(`${hosts} {${afterHostRules}\n  }`);
+    }
+    const pseudos = folderPairs.map((p) => p.pseudo).join(",\n");
+    const pseudoBody = folderPos === "after" ? afterPseudoRules : beforePseudoRules;
+    parts.push(`${pseudos} {${pseudoBody}\n  }`);
   }
 
   // Note selectors (exact matches for listed notes + prefix-match for files
   // inside any locked folder)
-  const noteSelectors: string[] = [];
+  const notePairs: SelectorPair[] = [];
   for (const n of notePaths) {
     const esc = cssEscapePath(n);
-    noteSelectors.push(`.nav-file-title[data-path="${esc}"]::${notePos}`);
-    noteSelectors.push(`.nn-file[data-path="${esc}"] .nn-file-name::${notePos}`);
+    notePairs.push(...noteExactTargets(esc, notePos));
   }
   for (const f of folderPaths) {
     const esc = cssEscapePath(f);
-    noteSelectors.push(`.nav-file-title[data-path^="${esc}/"]::${notePos}`);
-    noteSelectors.push(
-      `.nn-file[data-path^="${esc}/"] .nn-file-name::${notePos}`
-    );
+    notePairs.push(...noteDescendantTargets(esc, notePos));
   }
-  if (noteSelectors.length > 0) {
-    parts.push(
-      `${noteSelectors.join(",\n")} {\n${commonRules}\n    ${noteMargin}\n  }`
-    );
+  if (notePairs.length > 0) {
+    if (notePos === "after") {
+      const hosts = notePairs.map((p) => p.host).join(",\n");
+      parts.push(`${hosts} {${afterHostRules}\n  }`);
+    }
+    const pseudos = notePairs.map((p) => p.pseudo).join(",\n");
+    const pseudoBody = notePos === "after" ? afterPseudoRules : beforePseudoRules;
+    parts.push(`${pseudos} {${pseudoBody}\n  }`);
   }
 
   // Unlock-exception suppressors — hide the lock pseudo-element on any
