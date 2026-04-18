@@ -13,6 +13,32 @@
   margin-top: 4px;
 }
 
+/* Author block at the bottom of the settings tab */
+.lyfn-author-block {
+  text-align: center;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.lyfn-author-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50% !important;
+  display: inline-block;
+}
+
+.lyfn-author-name {
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.lyfn-author-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 2px;
+}
+
 /* Inline title blocker for active locked file */
 body.lyfn-active-file-locked .workspace-leaf.mod-active .inline-title {
   pointer-events: none;

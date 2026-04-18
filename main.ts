@@ -126,39 +126,56 @@ function buildIconCSS(settings: LYFNSettings): string {
 
   const parts: string[] = [];
 
-  // Folders
   const folderPaths = settings.lockedFolders.filter((p) => p && p.length > 0);
-  if (folderPaths.length > 0) {
-    const pos = settings.lockIconPositionFolders;
-    const margin =
-      pos === "before" ? "margin-right: 6px;" : "margin-left: 6px;";
-    const selectors: string[] = [];
-    for (const f of folderPaths) {
-      const esc = cssEscapePath(f);
-      selectors.push(`.nav-folder-title[data-path="${esc}"]::${pos}`);
-      selectors.push(
-        `.nn-navitem[data-path="${esc}"] .nn-navitem-name::${pos}`
-      );
-    }
+  const notePaths = settings.lockedNotes.filter((p) => p && p.length > 0);
+  const folderPos = settings.lockIconPositionFolders;
+  const notePos = settings.lockIconPositionNotes;
+  const folderMargin =
+    folderPos === "before" ? "margin-right: 6px;" : "margin-left: 6px;";
+  const noteMargin =
+    notePos === "before" ? "margin-right: 6px;" : "margin-left: 6px;";
+
+  // Folder selectors (both exact matches and prefix-match for descendant folders)
+  const folderSelectors: string[] = [];
+  for (const f of folderPaths) {
+    const esc = cssEscapePath(f);
+    // Exact match (the folder itself)
+    folderSelectors.push(`.nav-folder-title[data-path="${esc}"]::${folderPos}`);
+    folderSelectors.push(
+      `.nn-navitem[data-path="${esc}"] .nn-navitem-name::${folderPos}`
+    );
+    // Descendant folders (any depth)
+    folderSelectors.push(
+      `.nav-folder-title[data-path^="${esc}/"]::${folderPos}`
+    );
+    folderSelectors.push(
+      `.nn-navitem[data-path^="${esc}/"] .nn-navitem-name::${folderPos}`
+    );
+  }
+  if (folderSelectors.length > 0) {
     parts.push(
-      `${selectors.join(",\n")} {\n${commonRules}\n    ${margin}\n  }`
+      `${folderSelectors.join(",\n")} {\n${commonRules}\n    ${folderMargin}\n  }`
     );
   }
 
-  // Individual notes
-  const notePaths = settings.lockedNotes.filter((p) => p && p.length > 0);
-  if (notePaths.length > 0) {
-    const pos = settings.lockIconPositionNotes;
-    const margin =
-      pos === "before" ? "margin-right: 6px;" : "margin-left: 6px;";
-    const selectors: string[] = [];
-    for (const n of notePaths) {
-      const esc = cssEscapePath(n);
-      selectors.push(`.nav-file-title[data-path="${esc}"]::${pos}`);
-      selectors.push(`.nn-file[data-path="${esc}"] .nn-file-name::${pos}`);
-    }
+  // Note selectors (exact matches for listed notes + prefix-match for files
+  // inside any locked folder)
+  const noteSelectors: string[] = [];
+  for (const n of notePaths) {
+    const esc = cssEscapePath(n);
+    noteSelectors.push(`.nav-file-title[data-path="${esc}"]::${notePos}`);
+    noteSelectors.push(`.nn-file[data-path="${esc}"] .nn-file-name::${notePos}`);
+  }
+  for (const f of folderPaths) {
+    const esc = cssEscapePath(f);
+    noteSelectors.push(`.nav-file-title[data-path^="${esc}/"]::${notePos}`);
+    noteSelectors.push(
+      `.nn-file[data-path^="${esc}/"] .nn-file-name::${notePos}`
+    );
+  }
+  if (noteSelectors.length > 0) {
     parts.push(
-      `${selectors.join(",\n")} {\n${commonRules}\n    ${margin}\n  }`
+      `${noteSelectors.join(",\n")} {\n${commonRules}\n    ${noteMargin}\n  }`
     );
   }
 
@@ -777,6 +794,40 @@ class LYFNSettingTab extends PluginSettingTab {
     const link = linkP.createEl("a", { text: REPO_URL, href: REPO_URL });
     link.setAttr("target", "_blank");
     link.setAttr("rel", "noopener");
+
+    // ---- Author block ----
+    const authorBlock = containerEl.createDiv({ cls: "lyfn-author-block" });
+    const authorLink = authorBlock.createEl("a", {
+      href: "https://github.com/LeviathanDuck",
+    });
+    authorLink.setAttr("target", "_blank");
+    authorLink.setAttr("rel", "noopener");
+    const avatar = authorLink.createEl("img", {
+      attr: {
+        src: this.app.vault.adapter.getResourcePath(
+          ".obsidian/plugins/lock-your-folders-and-notes/assets/LeviathanDuck.png"
+        ),
+        alt: "LeviathanDuck",
+      },
+      cls: "lyfn-author-avatar",
+    });
+    void avatar;
+    const authorName = authorBlock.createEl("div", {
+      cls: "lyfn-author-name",
+      text: "Leviathan Duck",
+    });
+    void authorName;
+    authorBlock.createEl("div", {
+      cls: "lyfn-author-meta",
+      text: "Leftcoast Media House Inc.",
+    });
+    const moreP = authorBlock.createEl("div", { cls: "lyfn-author-meta" });
+    const moreLink = moreP.createEl("a", {
+      text: "More Obsidian plugins & themes",
+      href: "https://github.com/LeviathanDuck?tab=repositories",
+    });
+    moreLink.setAttr("target", "_blank");
+    moreLink.setAttr("rel", "noopener");
   }
 
   private buildPreviewIcon(): HTMLSpanElement {

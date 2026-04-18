@@ -60,3 +60,19 @@ Planned features beyond v0.1.0:
 ## License
 
 MIT. See [LICENSE](./LICENSE).
+
+---
+
+## Author
+
+<p align="center">
+  <a href="https://github.com/LeviathanDuck">
+    <img src="./assets/LeviathanDuck.png" width="100" alt="LeviathanDuck" style="border-radius:50%" />
+  </a>
+</p>
+
+<p align="center">
+  Built by <a href="https://github.com/LeviathanDuck">Leviathan Duck</a> — Leftcoast Media House Inc.<br/>
+  Licensed under <a href="./LICENSE">MIT</a>.<br/>
+  <a href="https://github.com/LeviathanDuck?tab=repositories">More Obsidian plugins &amp; themes</a>
+</p>
