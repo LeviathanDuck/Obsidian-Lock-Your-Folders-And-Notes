@@ -1,5 +1,7 @@
 # Lock Your Folders & Notes
 
+> 🧪 **Public beta.** This plugin is in active testing. If you hit something unexpected, please [submit an issue on GitHub](https://github.com/LeviathanDuck/Obsidian-Lock-Your-Folders-And-Notes/issues) — thanks for helping make it better.
+
 An Obsidian plugin that protects folders and individual notes from accidental editing or renaming. 
 
 It locks the notes you select into reader view only, until you force unlock. 

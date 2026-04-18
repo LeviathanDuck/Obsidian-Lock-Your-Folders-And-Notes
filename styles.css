@@ -85,6 +85,32 @@ body.lyfn-active-file-locked .workspace-leaf.mod-active .inline-title {
   font-family: var(--font-monospace, monospace);
 }
 
+/* Beta notice at the very top of the settings tab */
+.lyfn-beta-notice {
+  border: 1px solid var(--text-warning, #c0a030);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background-color: color-mix(in srgb, var(--text-warning, #c0a030) 10%, var(--background-secondary));
+}
+.lyfn-beta-notice strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-warning, #c0a030);
+}
+.lyfn-beta-notice p {
+  margin: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+/* Folder-preview line under a locked-folder row */
+.lyfn-folder-preview {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding: 2px 0 6px 12px;
+}
+
 /* Scope notice at the top of the settings tab */
 .lyfn-scope-notice {
   border: 1px solid var(--background-modifier-border);

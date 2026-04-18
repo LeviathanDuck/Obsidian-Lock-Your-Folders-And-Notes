@@ -42,6 +42,7 @@ type IconPosition = "before" | "after";
 interface LYFNSettings {
   lockedFolders: string[];
   lockedNotes: string[];
+  unlockExceptions: string[];
   isEnabled: boolean;
   blockRename: boolean;
   showLockIcon: boolean;
@@ -53,6 +54,7 @@ interface LYFNSettings {
 const DEFAULT_SETTINGS: LYFNSettings = {
   lockedFolders: [],
   lockedNotes: [],
+  unlockExceptions: [],
   isEnabled: true,
   blockRename: false,
   showLockIcon: true,
@@ -63,8 +65,22 @@ const DEFAULT_SETTINGS: LYFNSettings = {
 
 // ---- Helpers ----
 
+function isUnderException(
+  filePath: string,
+  settings: LYFNSettings
+): boolean {
+  for (const ex of settings.unlockExceptions) {
+    if (!ex) continue;
+    if (filePath === ex) return true;
+    if (filePath.startsWith(ex + "/")) return true;
+  }
+  return false;
+}
+
 function isPathLocked(filePath: string, settings: LYFNSettings): boolean {
+  // Priority: explicit note lock > unlock exception > folder lock
   if (settings.lockedNotes.includes(filePath)) return true;
+  if (isUnderException(filePath, settings)) return false;
   for (const folder of settings.lockedFolders) {
     if (!folder) continue;
     if (filePath === folder) return true;
@@ -75,8 +91,9 @@ function isPathLocked(filePath: string, settings: LYFNSettings): boolean {
 
 function isOldPathLocked(oldPath: string, settings: LYFNSettings): boolean {
   // Same as isPathLocked but used at rename time — oldPath may be a folder or file
-  if (settings.lockedFolders.includes(oldPath)) return true;
   if (settings.lockedNotes.includes(oldPath)) return true;
+  if (isUnderException(oldPath, settings)) return false;
+  if (settings.lockedFolders.includes(oldPath)) return true;
   for (const folder of settings.lockedFolders) {
     if (!folder) continue;
     if (oldPath.startsWith(folder + "/")) return true;
@@ -176,6 +193,52 @@ function buildIconCSS(settings: LYFNSettings): string {
   if (noteSelectors.length > 0) {
     parts.push(
       `${noteSelectors.join(",\n")} {\n${commonRules}\n    ${noteMargin}\n  }`
+    );
+  }
+
+  // Unlock-exception suppressors — hide the lock pseudo-element on any
+  // path that is an exception or a descendant of one. Uses !important
+  // display:none to override the icon rules above regardless of order.
+  const exceptionPaths = settings.unlockExceptions.filter(
+    (p) => p && p.length > 0
+  );
+  if (exceptionPaths.length > 0) {
+    const hideSelectors: string[] = [];
+    for (const e of exceptionPaths) {
+      const esc = cssEscapePath(e);
+      // Exact match (the exception itself, folder or note)
+      hideSelectors.push(`.nav-folder-title[data-path="${esc}"]::before`);
+      hideSelectors.push(`.nav-folder-title[data-path="${esc}"]::after`);
+      hideSelectors.push(`.nav-file-title[data-path="${esc}"]::before`);
+      hideSelectors.push(`.nav-file-title[data-path="${esc}"]::after`);
+      hideSelectors.push(
+        `.nn-navitem[data-path="${esc}"] .nn-navitem-name::before`
+      );
+      hideSelectors.push(
+        `.nn-navitem[data-path="${esc}"] .nn-navitem-name::after`
+      );
+      hideSelectors.push(`.nn-file[data-path="${esc}"] .nn-file-name::before`);
+      hideSelectors.push(`.nn-file[data-path="${esc}"] .nn-file-name::after`);
+      // Descendants (any depth)
+      hideSelectors.push(`.nav-folder-title[data-path^="${esc}/"]::before`);
+      hideSelectors.push(`.nav-folder-title[data-path^="${esc}/"]::after`);
+      hideSelectors.push(`.nav-file-title[data-path^="${esc}/"]::before`);
+      hideSelectors.push(`.nav-file-title[data-path^="${esc}/"]::after`);
+      hideSelectors.push(
+        `.nn-navitem[data-path^="${esc}/"] .nn-navitem-name::before`
+      );
+      hideSelectors.push(
+        `.nn-navitem[data-path^="${esc}/"] .nn-navitem-name::after`
+      );
+      hideSelectors.push(
+        `.nn-file[data-path^="${esc}/"] .nn-file-name::before`
+      );
+      hideSelectors.push(
+        `.nn-file[data-path^="${esc}/"] .nn-file-name::after`
+      );
+    }
+    parts.push(
+      `${hideSelectors.join(",\n")} {\n    display: none !important;\n  }`
     );
   }
 
@@ -366,6 +429,35 @@ class FileSuggest extends TextInputSuggest<TFile> {
   }
 }
 
+class AnySuggest extends TextInputSuggest<TAbstractFile> {
+  getSuggestions(inputStr: string): TAbstractFile[] {
+    const all = this.app.vault.getAllLoadedFiles();
+    const q = inputStr.toLowerCase();
+    const matched: TAbstractFile[] = [];
+    for (const f of all) {
+      if (f instanceof TFolder) {
+        if (f.path === "/") continue;
+        if (f.path.toLowerCase().contains(q)) matched.push(f);
+      } else if (f instanceof TFile && f.extension === "md") {
+        if (f.path.toLowerCase().contains(q)) matched.push(f);
+      }
+    }
+    matched.sort((a, b) => a.path.localeCompare(b.path));
+    return matched.slice(0, 50);
+  }
+
+  renderSuggestion(item: TAbstractFile, el: HTMLElement): void {
+    const label = item instanceof TFolder ? `📁 ${item.path}` : item.path;
+    el.setText(label);
+  }
+
+  selectSuggestion(item: TAbstractFile): void {
+    this.inputEl.value = item.path;
+    this.inputEl.trigger("input");
+    this.inputEl.blur();
+  }
+}
+
 // ---- Plugin ----
 
 export default class LYFNPlugin extends Plugin {
@@ -529,6 +621,13 @@ export default class LYFNPlugin extends Plugin {
     if (file instanceof TFolder) {
       if (file.path === "/") return;
       const locked = this.settings.lockedFolders.includes(file.path);
+      const isException = this.settings.unlockExceptions.includes(file.path);
+      const insideLocked =
+        !locked &&
+        this.settings.lockedFolders.some(
+          (lf) => lf && file.path.startsWith(lf + "/")
+        );
+
       menu.addItem((item) =>
         item
           .setTitle(locked ? "Unlock folder" : "Lock folder (and contents)")
@@ -546,8 +645,40 @@ export default class LYFNPlugin extends Plugin {
             this.onLayoutChange();
           })
       );
+
+      if (insideLocked || isException) {
+        menu.addItem((item) =>
+          item
+            .setTitle(
+              isException
+                ? "Remove unlock exception"
+                : "Add unlock exception (allow edit)"
+            )
+            .setIcon(isException ? "lock" : "unlock")
+            .onClick(async () => {
+              if (isException) {
+                this.settings.unlockExceptions =
+                  this.settings.unlockExceptions.filter(
+                    (p) => p !== file.path
+                  );
+              } else {
+                this.settings.unlockExceptions.push(file.path);
+              }
+              await this.saveSettings();
+              this.refreshIconStyles();
+              this.onLayoutChange();
+            })
+        );
+      }
     } else if (file instanceof TFile && file.extension === "md") {
       const locked = this.settings.lockedNotes.includes(file.path);
+      const isException = this.settings.unlockExceptions.includes(file.path);
+      const insideLocked =
+        !locked &&
+        this.settings.lockedFolders.some(
+          (lf) => lf && file.path.startsWith(lf + "/")
+        );
+
       menu.addItem((item) =>
         item
           .setTitle(locked ? "Unlock note" : "Lock this note")
@@ -565,6 +696,31 @@ export default class LYFNPlugin extends Plugin {
             this.onLayoutChange();
           })
       );
+
+      if (insideLocked || isException) {
+        menu.addItem((item) =>
+          item
+            .setTitle(
+              isException
+                ? "Remove unlock exception"
+                : "Add unlock exception (allow edit)"
+            )
+            .setIcon(isException ? "lock" : "unlock")
+            .onClick(async () => {
+              if (isException) {
+                this.settings.unlockExceptions =
+                  this.settings.unlockExceptions.filter(
+                    (p) => p !== file.path
+                  );
+              } else {
+                this.settings.unlockExceptions.push(file.path);
+              }
+              await this.saveSettings();
+              this.refreshIconStyles();
+              this.onLayoutChange();
+            })
+        );
+      }
     }
   };
 
@@ -625,6 +781,22 @@ class LYFNSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+
+    // ---- Beta notice ----
+    const betaNotice = containerEl.createDiv({ cls: "lyfn-beta-notice" });
+    const betaTitle = betaNotice.createEl("strong");
+    betaTitle.setText("🧪 Public beta");
+    const betaBody = betaNotice.createEl("p");
+    betaBody.appendText(
+      "This plugin is in active testing. If you hit something unexpected, please "
+    );
+    const betaLink = betaBody.createEl("a", {
+      text: "submit an issue on GitHub",
+      href: REPO_URL + "/issues",
+    });
+    betaLink.setAttr("target", "_blank");
+    betaLink.setAttr("rel", "noopener");
+    betaBody.appendText(" — thanks for helping make it better.");
 
     // ---- Scope notice ----
     const notice = containerEl.createDiv({ cls: "lyfn-scope-notice" });
@@ -752,6 +924,20 @@ class LYFNSettingTab extends PluginSettingTab {
       "Add note"
     );
 
+    // ---- Unlock Exceptions ----
+    containerEl.createEl("h3", { text: "Unlock exceptions" });
+    containerEl.createEl("p", {
+      text: "Carve out specific folders or notes inside a locked folder that should remain editable. Exceptions override folder locks. Individually-locked notes still win over exceptions.",
+      cls: "setting-item-description",
+    });
+
+    this.renderPathList(
+      containerEl,
+      this.plugin.settings.unlockExceptions,
+      "any",
+      "Add exception"
+    );
+
     // ---- Global Status ----
     containerEl.createEl("h3", { text: "Global status" });
     new Setting(containerEl)
@@ -817,6 +1003,23 @@ class LYFNSettingTab extends PluginSettingTab {
     moreLink.setAttr("rel", "noopener");
   }
 
+  private countChildren(folder: TFolder): { folders: number; files: number } {
+    let folders = 0;
+    let files = 0;
+    const walk = (f: TFolder) => {
+      for (const child of f.children) {
+        if (child instanceof TFolder) {
+          folders++;
+          walk(child);
+        } else if (child instanceof TFile && child.extension === "md") {
+          files++;
+        }
+      }
+    };
+    walk(folder);
+    return { folders, files };
+  }
+
   private buildPreviewIcon(): HTMLSpanElement {
     const icon = document.createElement("span");
     icon.addClass("lyfn-preview-icon");
@@ -847,7 +1050,7 @@ class LYFNSettingTab extends PluginSettingTab {
   private renderPathList(
     containerEl: HTMLElement,
     paths: string[],
-    kind: "folder" | "note",
+    kind: "folder" | "note" | "any",
     addLabel: string
   ): void {
     const listEl = containerEl.createDiv({ cls: "lyfn-path-list" });
@@ -857,16 +1060,42 @@ class LYFNSettingTab extends PluginSettingTab {
       const setting = new Setting(rowContainer);
       setting.addSearch((search) => {
         search.setPlaceholder(
-          kind === "folder" ? "folder/path" : "folder/note.md"
+          kind === "folder"
+            ? "folder/path"
+            : kind === "note"
+              ? "folder/note.md"
+              : "folder/path or folder/note.md"
         );
         search.setValue(path);
 
-        // Attach suggester
+        // Attach suggester (folder+file for "any")
         if (kind === "folder") {
           new FolderSuggest(this.app, search.inputEl);
-        } else {
+        } else if (kind === "note") {
           new FileSuggest(this.app, search.inputEl);
+        } else {
+          new AnySuggest(this.app, search.inputEl);
         }
+
+        const updatePreview = () => {
+          const preview = rowContainer.querySelector(".lyfn-folder-preview");
+          if (preview) preview.remove();
+          if (kind === "note") return;
+          const trimmed = (paths[index] ?? "").trim();
+          if (!trimmed) return;
+          const af = this.app.vault.getAbstractFileByPath(
+            normalizePath(trimmed)
+          );
+          if (!(af instanceof TFolder)) return;
+          const counts = this.countChildren(af);
+          if (counts.folders === 0 && counts.files === 0) return;
+          const p = rowContainer.createEl("div", {
+            cls: "lyfn-folder-preview",
+          });
+          p.setText(
+            `↳ ${counts.folders} subfolder${counts.folders === 1 ? "" : "s"}, ${counts.files} file${counts.files === 1 ? "" : "s"} will be affected`
+          );
+        };
 
         search.onChange(async (v) => {
           const trimmed = v.trim();
@@ -875,18 +1104,26 @@ class LYFNSettingTab extends PluginSettingTab {
           if (trimmed.length > 0) {
             const normalized = normalizePath(trimmed);
             const af = this.app.vault.getAbstractFileByPath(normalized);
-            const valid =
-              kind === "folder"
-                ? af instanceof TFolder
-                : af instanceof TFile && af.extension === "md";
+            let valid = false;
+            if (kind === "folder") valid = af instanceof TFolder;
+            else if (kind === "note")
+              valid = af instanceof TFile && af.extension === "md";
+            else
+              valid =
+                af instanceof TFolder ||
+                (af instanceof TFile && af.extension === "md");
             rowContainer.toggleClass("has-warning", !valid);
           } else {
             rowContainer.removeClass("has-warning");
           }
+          updatePreview();
           await this.plugin.saveSettings();
           this.plugin.refreshIconStyles();
           this.plugin.onLayoutChange();
         });
+
+        // initial render of preview after suggester attached
+        window.setTimeout(updatePreview, 0);
       });
       setting.addExtraButton((btn) =>
         btn
